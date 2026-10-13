@@ -1,5 +1,7 @@
 using AutoMapper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using SocialMediaPlatform.Business.Interfaces;
 using SocialMediaPlatform.Business.Services;
 using SocialMediaPlatform.Data.Interfaces;
 using SocialMediaPlatform.Entities.Dtos.UserDtos;
@@ -16,6 +18,7 @@ public class UserServiceTests
     private readonly Mock<IMapper> _mapper = new(MockBehavior.Strict);
     private readonly Mock<UserManager<AppUser>> _userManager = TestHelpers.CreateUserManagerMock();
     private readonly Mock<IUnitOfWork> _unitOfWork = new(MockBehavior.Strict);
+    private readonly Mock<IFileStorageService> _fileStorage = new(MockBehavior.Strict);
 
     private readonly UserService _sut;
 
@@ -26,7 +29,8 @@ public class UserServiceTests
             _followRepository.Object,
             _mapper.Object,
             _userManager.Object,
-            _unitOfWork.Object);
+            _unitOfWork.Object,
+            _fileStorage.Object);
     }
 
     private static AppUser MakeUser(Guid id) => new AppUser("user", "user@example.com", "User") { Id = id };
@@ -87,6 +91,53 @@ public class UserServiceTests
 
         // Assert
         result.FollowStatus.Should().Be(FollowStatus.Accepted);
+    }
+
+    private void SetupProfileRead(Guid userId, AppUser user)
+    {
+        _userRepository.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(user);
+        _mapper.Setup(m => m.Map<UserDto>(It.IsAny<AppUser>())).Returns(new UserDto());
+        _userRepository.Setup(r => r.GetUserPostsCountAsync(userId)).ReturnsAsync(0);
+        _followRepository.Setup(r => r.GetFollowersCountAsync(userId)).ReturnsAsync(0);
+        _followRepository.Setup(r => r.GetFollowingCountAsync(userId)).ReturnsAsync(0);
+        _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+    }
+
+    [Fact]
+    public async Task UpdateUserProfileAsync_ShouldKeepPicture_WhenNoNewPictureUploaded()
+    {
+        // Arrange: user already has a picture, update only changes the bio.
+        var userId = Guid.NewGuid();
+        var user = MakeUser(userId);
+        user.UpdateProfile("User", "/uploads/old.jpg", null, null);
+        SetupProfileRead(userId, user);
+
+        // Act
+        await _sut.UpdateUserProfileAsync(userId, new UserProfileUpdateDto { FullName = "User", Bio = "new bio" });
+
+        // Assert: the picture survived and nothing was uploaded.
+        user.ProfilePictureUrl.Should().Be("/uploads/old.jpg");
+        user.Bio.Should().Be("new bio");
+        _fileStorage.Verify(s => s.UploadFileAsync(It.IsAny<IFormFile>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateUserProfileAsync_ShouldUploadAndSetPicture_WhenNewPictureProvided()
+    {
+        // Arrange
+        var userId = Guid.NewGuid();
+        var user = MakeUser(userId);
+        user.UpdateProfile("User", "/uploads/old.jpg", null, null);
+        SetupProfileRead(userId, user);
+        _fileStorage.Setup(s => s.UploadFileAsync(It.IsAny<IFormFile>())).ReturnsAsync("/uploads/new.jpg");
+
+        // Act
+        await _sut.UpdateUserProfileAsync(userId,
+            new UserProfileUpdateDto { FullName = "User", ProfilePicture = TestHelpers.CreateFormFile() });
+
+        // Assert
+        user.ProfilePictureUrl.Should().Be("/uploads/new.jpg");
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

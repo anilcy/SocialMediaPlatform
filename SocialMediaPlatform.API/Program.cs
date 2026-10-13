@@ -7,6 +7,7 @@ using SocialMediaPlatform.Entities.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using System.Text;
@@ -50,7 +51,7 @@ builder.Services.AddSingleton<IPresenceService, PresenceService>();
 // SignalR scale-out (çoklu API replika için)
 builder.Services.AddSignalR().AddStackExchangeRedis(GetEnv("REDIS_CONNECTION"), opts =>
 {
-    opts.Configuration.ChannelPrefix = "instaclone";
+    opts.Configuration.ChannelPrefix = "socialmedia";
 });
 */
 
@@ -238,6 +239,16 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Serve uploaded media (FileStorageService saves files here and returns "/uploads/<file>" urls)
+var uploadsFolder = app.Configuration["UploadsFolder"] ?? "uploads";
+var uploadsPath = Path.Combine(Directory.GetCurrentDirectory(), uploadsFolder);
+Directory.CreateDirectory(uploadsPath);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(uploadsPath),
+    RequestPath = "/" + uploadsFolder
+});
 
 // JWT Authentication
 app.UseRouting();

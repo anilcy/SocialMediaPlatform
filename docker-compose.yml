@@ -32,6 +32,8 @@ services:
     ports:
       - "5005:8080"
       - "5006:8081"
+    volumes:
+      - uploads:/app/uploads
     restart: unless-stopped
 
   
@@ -44,3 +46,4 @@ services:
 
 volumes:
   db_data:
+  uploads:

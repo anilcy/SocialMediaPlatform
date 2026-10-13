@@ -19,15 +19,18 @@ public class UserService : IUserService
     private readonly IMapper _mapper;
     private readonly UserManager<AppUser> _userManager;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IFileStorageService _fileStorageService;
 
     public UserService(IUserRepository userRepository, IFollowRepository followRepository,
-                      IMapper mapper, UserManager<AppUser> userManager, IUnitOfWork unitOfWork)
+                      IMapper mapper, UserManager<AppUser> userManager, IUnitOfWork unitOfWork,
+                      IFileStorageService fileStorageService)
     {
         _userRepository = userRepository;
         _followRepository = followRepository;
         _mapper = mapper;
         _userManager = userManager;
         _unitOfWork = unitOfWork;
+        _fileStorageService = fileStorageService;
     }
 
     public async Task<UserDto> GetUserProfileAsync(Guid userId, Guid? currentUserId = null)
@@ -68,7 +71,12 @@ public class UserService : IUserService
         if (user == null)
             throw new KeyNotFoundException("User not found");
         
-        user.UpdateProfile(dto.FullName, null, dto.Bio, dto.WebsiteUrl);
+        // Keep the current picture unless a new one is uploaded
+        var pictureUrl = user.ProfilePictureUrl;
+        if (dto.ProfilePicture != null)
+            pictureUrl = await _fileStorageService.UploadFileAsync(dto.ProfilePicture);
+
+        user.UpdateProfile(dto.FullName, pictureUrl, dto.Bio, dto.WebsiteUrl);
         await _unitOfWork.SaveChangesAsync();
         
         return await GetUserProfileAsync(userId);
